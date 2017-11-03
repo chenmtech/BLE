@@ -13,11 +13,13 @@ import android.content.pm.PackageManager;
  * @date: 16/8/5 20:43.
  */
 public class BleUtil {
+    // 请求enable蓝牙
     public static void enableBluetooth(Activity activity, int requestCode) {
         Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
         activity.startActivityForResult(intent, requestCode);
     }
 
+    // 判断是否支持BLE
     public static boolean isSupportBle(Context context) {
         if (context == null || !context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             return false;
@@ -26,6 +28,7 @@ public class BleUtil {
         return manager.getAdapter() != null;
     }
 
+    // 判断是否enable BLE
     public static boolean isBleEnable(Context context) {
         if (!isSupportBle(context)) {
             return false;
