@@ -24,64 +24,56 @@
 ### 连接成功后接收不到设备发送过来的数据？
 确保你选择的服务和特征值是支持通知的，还有需要确定该UUID是可通知方式还是指示器方式，这两种方式是有区别的，指示器方式底层封装了应答机制，比可通知方式更可靠，在使用框架时确保传入的那个 isIndication 是否是对的。测试时可以先用群里提供的 demo APK 先验证是否可以收到设备的数据。
 
+### 接收数据的可通知方式与指示器方式有什么区别，该怎么选择？
+可通知方式：设备将要发送的数据直接发送，不管接收方有没有收到；
+指示器方式：设备每发送一次数据都会等待接收方的应答，如果没有应答会重复发送，如果有应答才会进行下一次数据的发送。
+这两种方式App端只需要根据需求选择就行，不需要关系是否需要应答，这个应答机制协议层已经做了封装。至于什么时候选择什么方式，一般情况是：如果是需要保证数据到达的准确性那么就选择指示器方式，而如果是只需要保证数据快速发送不太关心数据是否准确到达那么就选择可通知方式。
+
 ### 收发数据超过 20 字节怎么处理？
 
 如果收发数据超过 20 字节，在发送时需要进行分包处理，接收时则需要进行组包处理。由于该库是基础的通信库，与数据处理等不进行挂钩，而组包一般与协议相关，故没有在该库中进行处理，而需要上层在调用数据发送和接收数据时统一进行处理。由于最近有人在使用库时问到分包的问题，故在此统一进行说明下，使用时可参考如下方式进行分包组包处理。
 
 分包处理如下：
 ```
-//存储待发送的数据队列
-private Queue<byte[]> dataInfoQueue = new LinkedList<>();
-
-private Handler handler = new Handler(){
-    @Override
-    public void handleMessage(Message msg) {
-        super.handleMessage(msg);
-    }
-};
-
-private Runnable runnable = new Runnable() {
-    @Override
-    public void run() {
-        send();
-    }
-};
-
 //外部调用发送数据方法
-public void send(byte[] data) {
+public void write(final BluetoothLeDevice bluetoothLeDevice, byte[] data) {
     if (dataInfoQueue != null) {
         dataInfoQueue.clear();
         dataInfoQueue = splitPacketFor20Byte(data);
-        handler.post(runnable);
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                send(bluetoothLeDevice);
+            }
+        });
     }
 }
 
-//实际发送数据过程
-private void send() {
+//发送队列，提供一种简单的处理方式，实际项目场景需要根据需求优化
+private Queue<byte[]> dataInfoQueue = new LinkedList<>();
+private void send(final BluetoothLeDevice bluetoothLeDevice) {
     if (dataInfoQueue != null && !dataInfoQueue.isEmpty()) {
-        //检测到发送数据，直接发送
-        if (dataInfoQueue.peek() != null) {
-            ViseBluetooth.getInstance().writeCharacteristic(dataInfoQueue.poll(), new IBleCallback<BluetoothGattCharacteristic>() {
-
-                @Override
-                public void onSuccess(BluetoothGattCharacteristic bluetoothGattCharacteristic, int type) {
-
-                }
-
-                @Override
-                public void onFailure(BleException exception) {
-
-                }
-            });
+        DeviceMirror deviceMirror = mDeviceMirrorPool.getDeviceMirror(bluetoothLeDevice);
+        if (dataInfoQueue.peek() != null && deviceMirror != null) {
+            deviceMirror.writeData(dataInfoQueue.poll());
         }
-        //检测还有数据，延时后继续发送，一般延时100毫秒左右
         if (dataInfoQueue.peek() != null) {
-            handler.postDelayed(runnable, 100);
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    send(bluetoothLeDevice);
+                }
+            }, 100);
         }
     }
 }
 
-//数据分包处理
+/**
+ * 数据分包
+ *
+ * @param data
+ * @return
+ */
 private Queue<byte[]> splitPacketFor20Byte(byte[] data) {
     Queue<byte[]> dataInfoQueue = new LinkedList<>();
     if (data != null) {
@@ -99,7 +91,7 @@ private Queue<byte[]> splitPacketFor20Byte(byte[] data) {
                 System.arraycopy(data, index, currentData, 0, 20);
                 index += 20;
             }
-            dataInfoQueue.offer(currentData);
+            dataInfoQueue.offer(currentData);
         } while (index < data.length);
     }
     return dataInfoQueue;
